@@ -13,15 +13,17 @@ from dataclasses import dataclass
 import numpy as np
 
 HALF_TIME_ABOVE_BPM = 140.0  # 이보다 빠른 곡은 한 박 걸러 춤춘다 (테스트한 최대 템포 140 BPM)
-ENERGY_SMOOTH_BEATS = 4      # 에너지를 몇 박 평균으로 부드럽게 할지 (1마디)
+ENERGY_SMOOTH_SEC = 2.0      # 세기 곡선을 몇 초 평균으로 부드럽게 할지 (약 1마디)
+ENERGY_RANGE_DB = 12.0       # 곡에서 가장 큰 구간보다 이만큼(dB) 작으면 세기 0
 
 
 @dataclass
 class BeatMap:
-    beats: np.ndarray   # 비트 시각(초), 오름차순
-    energy: np.ndarray  # 비트별 에너지 0~1 (beats 와 길이 같음)
-    tempo: float        # 춤에 쓰는 템포(BPM). half-time 적용 후 값
-    duration: float     # 곡 길이(초)
+    beats: np.ndarray     # 비트 시각(초), 오름차순
+    energy_t: np.ndarray  # 세기 곡선의 시각(초)
+    energy: np.ndarray    # 세기 0~1 (energy_t 와 길이 같음)
+    tempo: float          # 춤에 쓰는 템포(BPM). half-time 적용 후 값
+    duration: float       # 곡 길이(초)
     half_time: bool = False
 
     def beat_at(self, t):
@@ -40,9 +42,9 @@ class BeatMap:
         return i + (t - b[i]) / (b[i + 1] - b[i])
 
     def energy_at(self, t):
-        if len(self.beats) == 0:
+        if len(self.energy_t) == 0:
             return 0.0
-        return float(np.interp(t, self.beats, self.energy))
+        return float(np.interp(t, self.energy_t, self.energy))
 
 
 def _smooth(x, n):
@@ -53,24 +55,35 @@ def _smooth(x, n):
     return np.convolve(xp, np.ones(n) / n, mode="valid")
 
 
+def energy_curve(rms, rms_times):
+    """RMS 곡선 -> 0~1 세기 곡선 (곡 전체 기준, dB).
+
+    곡의 큰 구간(95 퍼센타일)을 1로 두고, 그보다 ENERGY_RANGE_DB 이상 작으면 0.
+    곡의 조용한 구간(10 퍼센타일)이 그보다 더 크면 그 지점을 0으로 삼는다.
+    그래서 처음부터 끝까지 비슷하게 큰 곡은 계속 1 근처에 머문다 (작은 흔들림을 0~1로 부풀리지 않음).
+    """
+    rms = np.asarray(rms, dtype=float)
+    rms_times = np.asarray(rms_times, dtype=float)
+    if len(rms) == 0:
+        return rms_times, rms
+    db = 20 * np.log10(np.maximum(rms, 1e-6))
+    hi = np.percentile(db, 95)
+    lo = min(np.percentile(db, 10), hi - ENERGY_RANGE_DB)
+    e = np.clip((db - lo) / (hi - lo), 0.0, 1.0)
+    dt = float(np.median(np.diff(rms_times))) if len(rms_times) > 1 else 1.0
+    e = _smooth(e, max(1, int(round(ENERGY_SMOOTH_SEC / dt))))
+    return rms_times, e
+
+
 def beatmap_from(beats, rms, rms_times, duration, tempo, half_time_above=HALF_TIME_ABOVE_BPM):
     """비트 시각과 RMS 곡선으로 BeatMap 을 만든다 (librosa 없이 테스트 가능하게 분리)."""
     beats = np.asarray(beats, dtype=float)
     half = False
     if tempo > half_time_above and len(beats) >= 4:
         beats, tempo, half = beats[::2], tempo / 2.0, True
-
-    edges = np.append(beats, duration)
-    e = np.zeros(len(beats))
-    for i in range(len(beats)):
-        m = (rms_times >= edges[i]) & (rms_times < edges[i + 1])
-        e[i] = rms[m].mean() if m.any() else 0.0
-
-    if len(e):
-        lo, hi = np.percentile(e, 10), np.percentile(e, 95)
-        e = np.clip((e - lo) / (hi - lo), 0.0, 1.0) if hi > lo else np.ones_like(e)
-        e = _smooth(e, ENERGY_SMOOTH_BEATS)
-    return BeatMap(beats=beats, energy=e, tempo=float(tempo), duration=float(duration), half_time=half)
+    et, e = energy_curve(rms, rms_times)
+    return BeatMap(beats=beats, energy_t=et, energy=e, tempo=float(tempo),
+                   duration=float(duration), half_time=half)
 
 
 def analyze(path, half_time_above=HALF_TIME_ABOVE_BPM):

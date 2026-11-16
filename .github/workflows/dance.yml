@@ -24,7 +24,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install numpy librosa soundfile mujoco onnxruntime "better-actuator-models[mujoco]" huggingface_hub
+      # microduck_rl b02fdea 의 uv.lock 과 같은 버전 (BAM 은 PyPI 판과 API 가 달라 락된 git 커밋으로)
+      - run: |
+          pip install numpy==2.4.1 mujoco==3.10.0 onnxruntime==1.24.4 colorama librosa soundfile huggingface_hub
+          pip install --no-deps "git+https://github.com/Rhoban/bam.git@62bd8ce12154340be97e06f7f41a0ca8f116d967"
       - name: microduck_rl (b02fdea) + policies
         run: |
           git clone -q -b develop https://github.com/pollen-robotics/microduck_rl.git

@@ -18,7 +18,8 @@ from make_test_song import SR, make  # noqa: E402
 
 
 def test_beat_at_interpolates_and_extrapolates():
-    bm = music.BeatMap(beats=np.array([1.0, 1.5, 2.0, 2.5]), energy=np.ones(4), tempo=120, duration=3)
+    bm = music.BeatMap(beats=np.array([1.0, 1.5, 2.0, 2.5]), energy_t=np.array([0.0, 3.0]),
+                       energy=np.ones(2), tempo=120, duration=3)
     assert bm.beat_at(1.0) == 0
     assert math.isclose(bm.beat_at(1.25), 0.5)
     assert math.isclose(bm.beat_at(2.5), 3)
@@ -43,6 +44,14 @@ def test_energy_follows_loudness():
     bm = music.beatmap_from(beats, rms, rms_t, 20, 120)
     assert bm.energy_at(3) < 0.2 and bm.energy_at(17) > 0.8
     assert bm.energy.min() >= 0 and bm.energy.max() <= 1
+
+
+def test_uniformly_loud_song_stays_energetic():
+    # 처음부터 끝까지 큰 곡: 1~2dB 흔들림을 0~1 로 부풀리지 않아야 한다
+    rms_t = np.linspace(0, 30, 3000)
+    rms = 0.5 * (1 + 0.1 * np.sin(rms_t * 3))
+    bm = music.beatmap_from(np.arange(0, 30, 0.5), rms, rms_t, 30, 120)
+    assert bm.energy[100:-100].min() > 0.8
 
 
 def test_dancer_never_exceeds_metronome_amplitude():
