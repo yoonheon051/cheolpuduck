@@ -48,7 +48,7 @@ jobs:
           run() { out=$(python dance.py "$@" 2>err.txt | tail -1) || out="CRASH $out :: $(tail -c 900 err.txt | tr '\n' ' ')"; cat err.txt >&2; echo "::notice title=dance $*::$out"; case "$out" in *OK) ;; *) fail=1;; esac; }
           fail=0
           info dance_main.py --bpm 140 --amp 1.0 --headless 20
-          info dance.py --bpm 140 --amp 1.0 --headless 20
+          run --bpm 140 --amp 1.0 --headless 20
           info dance_main.py --bpm 140 --amp 0.8 --headless 20
           info dance.py --music song140.wav --amp 1.0 --headless 999
           run --bpm 120 --headless 20
