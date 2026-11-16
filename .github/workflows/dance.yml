@@ -42,14 +42,11 @@ jobs:
       - name: headless dance
         run: |
           set -o pipefail
-          git fetch -q --depth=1 origin main && git show FETCH_HEAD:dance.py > dance_main.py
           # 결과 확인용 (실패해도 CI 를 깨지 않음)
           info() { s=$1; shift; out=$(python $s "$@" 2>err.txt | tail -1) || out="CRASH :: $(tail -c 600 err.txt | tr '\n' ' ')"; echo "::notice title=info $s $*::$out"; }
           run() { out=$(python dance.py "$@" 2>err.txt | tail -1) || out="CRASH $out :: $(tail -c 900 err.txt | tr '\n' ' ')"; cat err.txt >&2; echo "::notice title=dance $*::$out"; case "$out" in *OK) ;; *) fail=1;; esac; }
           fail=0
-          info dance_main.py --bpm 140 --amp 1.0 --headless 20
           run --bpm 140 --amp 1.0 --headless 20
-          info dance_main.py --bpm 140 --amp 0.8 --headless 20
           info dance.py --music song140.wav --amp 1.0 --headless 999
           run --bpm 120 --headless 20
           run --bpm 140 --headless 20
