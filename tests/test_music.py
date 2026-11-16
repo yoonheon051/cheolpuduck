@@ -11,23 +11,10 @@ import tempfile
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import music  # noqa: E402
 from choreo import Dancer  # noqa: E402
-
-SR = 22050
-
-
-def click_track(bpm, seconds, quiet_until=None, quiet_gain=0.15):
-    """bpm 박자마다 짧은 클릭(+약한 저음). quiet_until 초 전까지는 전체를 작게."""
-    y = 0.02 * np.sin(2 * np.pi * 110 * np.arange(int(seconds * SR)) / SR)
-    n = int(0.03 * SR)
-    click = np.sin(2 * np.pi * 1000 * np.arange(n) / SR) * np.hanning(n)
-    for t in np.arange(0.5, seconds - 0.1, 60.0 / bpm):
-        i = int(t * SR)
-        y[i:i + n] += click
-    if quiet_until:
-        y[:int(quiet_until * SR)] *= quiet_gain
-    return (0.5 * y).astype(np.float32)
+from make_test_song import SR, make  # noqa: E402
 
 
 def test_beat_at_interpolates_and_extrapolates():
@@ -84,11 +71,11 @@ def test_dancer_layers_grow_with_energy():
     assert not h0.any() and not b0.any()          # gain 0 이면 정지 자세
 
 
-def test_analyze_click_track():
+def test_analyze_test_song():
     import soundfile as sf
-    y = click_track(120, 30, quiet_until=15)
+    y = make(120, 30, quiet=15)
     with tempfile.TemporaryDirectory() as d:
-        path = os.path.join(d, "click.wav")
+        path = os.path.join(d, "song.wav")
         sf.write(path, y, SR)
         bm = music.analyze(path)
     assert 110 <= bm.tempo <= 130, bm.tempo
