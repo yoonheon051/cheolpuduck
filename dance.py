@@ -73,7 +73,8 @@ def control_step(model, data, bam_ctrl, policy, dancer, beat, energy=1.0, gain=1
 def make_cue(args):
     """시각 t(초) -> (beat, energy, gain) 함수와 곡 길이(메트로놈이면 None)."""
     if not args.music:
-        return (lambda t: (t * args.bpm / 60.0, 1.0, 1.0)), None
+        # 시작 직후(착지해 자세 잡는 중) 최대 진폭이 바로 들어가면 넘어질 수 있어 1초 페이드인
+        return (lambda t: (t * args.bpm / 60.0, 1.0, min(max(t, 0.0) / 1.0, 1.0))), None
 
     import music
     print(f"[music] 분석 중: {args.music}")
