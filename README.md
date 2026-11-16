@@ -16,7 +16,10 @@ policies/       HF kyoungsim/microduck 의 ONNX 정책 (alpha_walking/alpha_stan
 .venv/          mujoco 3.x, onnxruntime, BAM(락된 커밋 62bd8ce) — uv로 생성      ← 커밋하지 않음
 run_viewer.sh   모델만 둘러보기 (키프레임 INIT/STAND/SIT/FOLD)
 run_policy.sh   정책 구동 + 키보드 조작
-dance.py        박자에 맞춰 춤추는 데모
+dance.py        박자·음악에 맞춰 춤추는 데모
+music.py        음악 비트·세기 분석(librosa)과 재생(ffplay)
+choreo.py       춤 동작 (박자 위상 + 곡의 세기 -> 머리/몸체 pose 명령)
+tests/          music/choreo 테스트, 테스트 곡 생성기
 run_dance.sh    dance.py 실행 래퍼
 ```
 
@@ -33,6 +36,10 @@ git clone -b develop https://github.com/pollen-robotics/microduck_rl.git
 
 # 3. 가상환경: uv로 .venv 생성 후 mujoco, onnxruntime, BAM(62bd8ce) 설치
 #    uv는 ~/.local/bin/uv (PATH에 없으면 export PATH=$HOME/.local/bin:$PATH)
+
+# 4. 음악 춤용 (선택)
+uv pip install --python .venv/bin/python librosa soundfile
+sudo apt install ffmpeg        # 재생용 ffplay
 ```
 
 ## 사용
@@ -45,10 +52,13 @@ git clone -b develop https://github.com/pollen-robotics/microduck_rl.git
 ./run_policy.sh walk --no-bam           # BAM 액추에이터 대신 XML PD (학습 조건과 다름)
 ./run_dance.sh --bpm 120                # 춤 데모
 ./run_dance.sh --bpm 120 --headless 20  # 뷰어 없이 20초 돌려 넘어지는지 점검
+./run_dance.sh --music song.mp3         # 음악을 틀고 비트·세기에 맞춰 춤
+./run_dance.sh --music song.mp3 --headless 999   # 곡 전체를 소리·뷰어 없이 돌려 낙상 점검
 ```
 
 - `run_policy.sh` 의 추가 인자는 `infer_policy.py` 로 그대로 전달됩니다 (`--debug`, `--save-csv`, `--record` 등).
-- `run_dance.sh` 옵션: `--bpm`(기본 120), `--amp` 동작 크기 0~1(기본 0.6), `--headless N`.
+- `run_dance.sh` 옵션: `--bpm`(기본 120), `--amp` 동작 크기 0~1(기본 0.6), `--headless N`,
+  `--music 파일`, `--latency 초`(기본 0.1), `--mute`. 자세한 건 아래 "춤 데모" 참고.
 - 키보드는 **실행한 터미널 창에 포커스**를 두고 입력합니다 (MuJoCo 창 아님). 백그라운드 실행처럼 stdin이 TTY가 아니면 키 입력이 안 됩니다.
 - 종료는 `Q` 또는 뷰어 창 닫기.
 
@@ -77,7 +87,23 @@ git clone -b develop https://github.com/pollen-robotics/microduck_rl.git
 서 있는 정책(`alpha_stand.onnx`)의 머리·몸체 pose 명령을 박자 위상에 맞춰 흔듭니다. 새로 학습하지 않으며 Pollen 레포도 수정하지 않습니다(`infer_policy.py` 를 import).
 
 - 매 박 고개 끄덕, 2박마다 무릎 굽힘(z), 좌우 체중 이동(roll), 앞뒤 까딱(pitch), 머리 갸웃(yaw)
-- 현재는 고정 BPM 메트로놈. 음악 비트 동기화는 [NOTES.md](NOTES.md) 의 다음 할 일 참고
+- `--bpm`: 고정 템포 메트로놈. 모든 동작을 최대로
+- `--music 파일`: mp3/wav/ogg/flac 을 librosa 로 분석해 비트 시각과 곡의 세기(에너지)를 뽑고, ffplay 로 틀면서 춤춘다
+
+음악 모드에서 곡의 세기에 따라 동작이 쌓입니다 (세기는 1마디 단위로 부드럽게).
+
+| 세기 | 동작 |
+|---|---|
+| 조용함 | 고개만 작게 끄덕 |
+| 중간 | + 좌우 체중 이동, 머리 갸웃 |
+| 큼 | + 무릎 바운스, 앞뒤 까딱 (= 메트로놈 춤과 같은 크기) |
+
+- 어떤 세기에서도 동작 크기는 메트로놈 춤(같은 `--amp`)보다 커지지 않습니다.
+- 140 BPM 보다 빠른 곡은 한 박 걸러(half-time) 춤춥니다. 테스트해 본 최대 템포가 140 BPM 이라서입니다.
+- 곡 시작 전 1초 동안 페이드인, 끝나기 2초 전부터 페이드아웃 후 정지 자세.
+- 동작이 소리보다 빠르면 `--latency` 를 키우고, 늦으면 줄이세요 (ffplay 시작 지연 보정).
+- 테스트: `.venv/bin/python -m pytest tests/` (librosa, soundfile, pytest 필요).
+  테스트 곡은 `python tests/make_test_song.py song.wav --bpm 128` 로 만들 수 있습니다.
 
 ## 로봇·정책 규약 (microduck_rl/AGENTS.md 요약)
 
@@ -96,5 +122,5 @@ git clone -b develop https://github.com/pollen-robotics/microduck_rl.git
 |---|---|---|
 | microduck_rl 코드, MJCF, 설정 | Apache 2.0 (Pollen Robotics) | 미포함 (클론 안내만) |
 | microduck_rl 의 STL 3D 모델 | CC BY-NC-SA 4.0 — 비영리, 크레딧, 동일 라이선스 | 미포함 |
-| `policies/*.onnx` (HF kyoungsim/microduck) | **미확인** | 미포함. 확인 전에는 올리지 않음 |
+| `policies/*.onnx` (HF kyoungsim/microduck) | 모델 카드 메타데이터상 MIT (2026-11-16 확인, 본문 미확인) | 미포함 (다운로드 안내만) |
 | README, `run_*.sh`, `dance.py`, NOTES | 직접 작성 | 포함 |
