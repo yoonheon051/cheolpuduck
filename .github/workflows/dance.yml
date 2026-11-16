@@ -13,12 +13,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install numpy librosa soundfile pytest
-      - run: python -m pytest -q tests/
+      - run: pip install numpy librosa soundfile pytest pytest-github-actions-annotate-failures
+      - run: python -m pytest -q -rA tests/
 
   # 실제 MuJoCo + ONNX 정책으로 뷰어 없이 춤추게 해서 넘어지는지 점검
   sim:
-    needs: test
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
