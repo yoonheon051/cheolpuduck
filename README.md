@@ -102,7 +102,9 @@ sudo apt install ffmpeg        # 재생용 ffplay
 - 140 BPM 보다 빠른 곡은 한 박 걸러(half-time) 춤춥니다. 테스트해 본 최대 템포가 140 BPM 이라서입니다.
 - 곡 시작 전 1초 동안 페이드인, 끝나기 2초 전부터 페이드아웃 후 정지 자세.
 - 동작이 소리보다 빠르면 `--latency` 를 키우고, 늦으면 줄이세요 (ffplay 시작 지연 보정).
+- 메트로놈 모드 `--bpm 140 --amp 1.0` 은 CI 헤드리스 점검에서 넘어졌습니다 (기존 코드도 동일). 빠른 템포에서는 amp 0.8 이하를 권장합니다.
 - 테스트: `.venv/bin/python -m pytest tests/` (librosa, soundfile, pytest 필요).
+  push 할 때마다 GitHub Actions(`.github/workflows/dance.yml`)가 테스트와 헤드리스 춤 점검을 돌립니다.
   테스트 곡은 `python tests/make_test_song.py song.wav --bpm 128` 로 만들 수 있습니다.
 
 ## 로봇·정책 규약 (microduck_rl/AGENTS.md 요약)
