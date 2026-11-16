@@ -1,0 +1,61 @@
+name: dance
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install numpy librosa soundfile pytest pytest-github-actions-annotate-failures
+      - run: python -m pytest -q -rA tests/
+
+  # 실제 MuJoCo + ONNX 정책으로 뷰어 없이 춤추게 해서 넘어지는지 점검
+  sim:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # microduck_rl b02fdea 의 uv.lock 과 같은 버전 (BAM 은 PyPI 판과 API 가 달라 락된 git 커밋으로)
+      - run: |
+          pip install numpy==2.4.1 mujoco==3.10.0 onnxruntime==1.24.4 colorama librosa soundfile huggingface_hub
+          pip install --no-deps "git+https://github.com/Rhoban/bam.git@62bd8ce12154340be97e06f7f41a0ca8f116d967"
+      - name: microduck_rl (b02fdea) + policies
+        run: |
+          git clone -q -b develop https://github.com/pollen-robotics/microduck_rl.git
+          git -C microduck_rl checkout -q b02fdea
+          python -c "from huggingface_hub import hf_hub_download as d; [d('kyoungsim/microduck', 'policies/'+f, local_dir='.') for f in ['alpha_stand.onnx']]"
+          ls -la policies
+      - name: test songs
+        run: |
+          python tests/make_test_song.py song128.wav --bpm 128 --seconds 60 --quiet 20
+          python tests/make_test_song.py song174.wav --bpm 174 --seconds 40 --quiet 10
+          python tests/make_test_song.py song140.wav --bpm 140 --seconds 40 --quiet 10
+      - name: headless dance
+        run: |
+          set -o pipefail
+          git fetch -q --depth=1 origin main && git show FETCH_HEAD:dance.py > dance_main.py
+          # 결과 확인용 (실패해도 CI 를 깨지 않음)
+          info() { s=$1; shift; out=$(python $s "$@" 2>err.txt | tail -1) || out="CRASH :: $(tail -c 600 err.txt | tr '\n' ' ')"; echo "::notice title=info $s $*::$out"; }
+          run() { out=$(python dance.py "$@" 2>err.txt | tail -1) || out="CRASH $out :: $(tail -c 900 err.txt | tr '\n' ' ')"; cat err.txt >&2; echo "::notice title=dance $*::$out"; case "$out" in *OK) ;; *) fail=1;; esac; }
+          fail=0
+          info dance_main.py --bpm 140 --amp 1.0 --headless 20
+          info dance.py --bpm 140 --amp 1.0 --headless 20
+          info dance_main.py --bpm 140 --amp 0.8 --headless 20
+          info dance.py --music song140.wav --amp 1.0 --headless 999
+          run --bpm 120 --headless 20
+          run --bpm 140 --headless 20
+          run --music song140.wav --headless 999
+          run --music song128.wav --headless 999
+          run --music song128.wav --amp 1.0 --headless 999
+          run --music song174.wav --headless 999
+          run --music song174.wav --amp 1.0 --headless 999
+          exit $fail
