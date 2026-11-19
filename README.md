@@ -21,6 +21,23 @@ music.py        음악 비트·세기 분석(librosa)과 재생(ffplay)
 choreo.py       춤 동작 (박자 위상 + 곡의 세기 -> 머리/몸체 pose 명령)
 tests/          music/choreo 테스트, 테스트 곡 생성기
 run_dance.sh    dance.py 실행 래퍼
+NOTES.md        작업 경과, 테스트 결과, 문제 원인과 수정 기록
+.github/workflows/dance.yml   CI: 테스트 + 헤드리스 춤 낙상 점검
+```
+
+### 파일 관계
+
+```mermaid
+flowchart LR
+    RD[run_dance.sh] --> D[dance.py]
+    D --> M[music.py<br/>비트·세기 분석, ffplay 재생]
+    D --> C[choreo.py<br/>Dancer: 박자+세기 → pose]
+    D --> IP[microduck_rl/scripts/infer_policy.py<br/>MuJoCo·BAM·ONNX 정책]
+    IP --> P[(policies/alpha_stand.onnx)]
+    IP --> X[(microduck_rl MJCF 모델)]
+    RP[run_policy.sh] --> IP
+    T[tests/] --> M
+    T --> C
 ```
 
 `microduck_rl/`, `policies/`, `.venv/` 는 `.gitignore`로 제외되어 있습니다.
@@ -86,6 +103,35 @@ sudo apt install ffmpeg        # 재생용 ffplay
 
 서 있는 정책(`alpha_stand.onnx`)의 머리·몸체 pose 명령을 박자 위상에 맞춰 흔듭니다. 새로 학습하지 않으며 Pollen 레포도 수정하지 않습니다(`infer_policy.py` 를 import).
 
+### 동작 흐름
+
+```mermaid
+flowchart TD
+    A([run_dance.sh 인자]) --> B{--music 있나?}
+    B -- 아니요 --> C1[메트로놈 cue<br/>beat = t × BPM / 60<br/>세기 1, 처음 1초 페이드인]
+    B -- 예 --> C2[music.analyze<br/>librosa 비트 추적 + RMS]
+    C2 --> C3{템포가 140 BPM 초과?}
+    C3 -- 예 --> C4[한 박 걸러 half-time]
+    C3 -- 아니요 --> C5
+    C4 --> C5[세기 곡선 0~1<br/>곡 전체 dB 기준, 2초 평균]
+    C5 --> C6[음악 cue<br/>첫 비트 전 1초 페이드인<br/>끝 2초 전 페이드아웃]
+    C1 & C6 --> D[MuJoCo + BAM 액추에이터 로드<br/>alpha_stand 정책, 기본 자세로 세움]
+    D --> E{--headless N?}
+    E -- 예 --> H[뷰어 없이 N초 또는 곡 길이만큼]
+    E -- 아니요 --> V[뷰어 열기<br/>--music 이면 ffplay 재생 시작]
+    H & V --> L[[제어 루프 50Hz]]
+    L --> L1[cue t → beat, 세기, gain]
+    L1 --> L2[Dancer.pose<br/>head 4D, body 6D, 학습 범위로 clip]
+    L2 --> L3[정책 추론 → 관절 목표]
+    L3 --> L4[BAM 업데이트 + mj_step × 4]
+    L4 --> L
+    H --> R{최대 기울기 45° 미만이고<br/>몸통 최저 높이 60mm 초과?}
+    R -- 예 --> OK([OK])
+    R -- 아니요 --> FELL([FELL])
+```
+
+뷰어 모드의 시각 `t` 는 음악이 있으면 ffplay 재생 경과 시간 − `--latency`, 없으면 시작 후 경과 시간입니다.
+
 - 매 박 고개 끄덕, 2박마다 무릎 굽힘(z), 좌우 체중 이동(roll), 앞뒤 까딱(pitch), 머리 갸웃(yaw)
 - `--bpm`: 고정 템포 메트로놈. 모든 동작을 최대로
 - `--music 파일`: mp3/wav/ogg/flac 을 librosa 로 분석해 비트 시각과 곡의 세기(에너지)를 뽑고, ffplay 로 틀면서 춤춘다
@@ -103,9 +149,27 @@ sudo apt install ffmpeg        # 재생용 ffplay
 - 곡 시작 전 1초 동안 페이드인, 끝나기 2초 전부터 페이드아웃 후 정지 자세.
 - 동작이 소리보다 빠르면 `--latency` 를 키우고, 늦으면 줄이세요 (ffplay 시작 지연 보정).
 - 메트로놈 모드도 시작 후 1초 동안 페이드인합니다. 페이드인이 없을 때는 `--bpm 140 --amp 1.0` 이 시작 0.98초에 넘어졌습니다 (지금은 CI 헤드리스 점검 통과).
+- 헤드리스 점검은 끝나면 한 줄로 최저 몸통 높이·최대 기울기를 출력하고, 기울기 45° 미만·몸통 높이 60mm 초과면 `OK`, 아니면 `FELL` 입니다.
 - 테스트: `.venv/bin/python -m pytest tests/` (librosa, soundfile, pytest 필요).
-  push 할 때마다 GitHub Actions(`.github/workflows/dance.yml`)가 테스트와 헤드리스 춤 점검을 돌립니다.
   테스트 곡은 `python tests/make_test_song.py song.wav --bpm 128` 로 만들 수 있습니다.
+
+### CI (`.github/workflows/dance.yml`)
+
+push·PR 때마다 두 작업이 돕니다.
+
+```mermaid
+flowchart LR
+    P([push / PR]) --> T[test<br/>pytest tests/]
+    P --> S[sim]
+    S --> S1[microduck_rl b02fdea 클론<br/>HF 에서 alpha_stand.onnx 받기]
+    S1 --> S2[테스트 곡 생성<br/>128 / 140 / 174 BPM]
+    S2 --> S3[헤드리스 춤<br/>메트로놈 120·140 BPM<br/>곡 3개 × amp 0.6·1.0]
+    S3 --> S4{모두 OK?}
+    S4 -- 예 --> G([통과])
+    S4 -- 아니요 --> F([실패])
+```
+
+`--music song140.wav --amp 1.0` 결과는 참고용으로만 남기고 통과 여부에는 넣지 않습니다.
 
 ## 로봇·정책 규약 (microduck_rl/AGENTS.md 요약)
 
@@ -125,4 +189,4 @@ sudo apt install ffmpeg        # 재생용 ffplay
 | microduck_rl 코드, MJCF, 설정 | Apache 2.0 (Pollen Robotics) | 미포함 (클론 안내만) |
 | microduck_rl 의 STL 3D 모델 | CC BY-NC-SA 4.0 — 비영리, 크레딧, 동일 라이선스 | 미포함 |
 | `policies/*.onnx` (HF kyoungsim/microduck) | 모델 카드 메타데이터상 MIT (2026-11-16 확인, 본문 미확인) | 미포함 (다운로드 안내만) |
-| README, `run_*.sh`, `dance.py`, NOTES | 직접 작성 | 포함 |
+| README, NOTES, `run_*.sh`, `dance.py`, `music.py`, `choreo.py`, `tests/`, CI 설정 | 직접 작성 | 포함 |
